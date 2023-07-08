@@ -39,4 +39,4 @@ export type ChainInfo = {
   rpc: string;
   privKey: string;
   targetAddr: string;
-}
+};

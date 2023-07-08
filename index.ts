@@ -1,14 +1,34 @@
-import { Address } from "npm:micro-eth-signer@0.6.2";
-import { ChainInfo, Ticker } from "./types.ts";
+import { Ticker } from "./types.ts";
+import { ethers } from "npm:ethers@6.6.2";
+import ABI from "./ABI.json" assert { type: "json" };
+import { config } from "https://deno.land/x/dotenv/mod.ts";
 
-const chainInfos: ChainInfo[] = [
-    {
-        chainId: 11155111,
-        rpc: "https://rpc.sepolia.dev",
-        targetAddr: "",
-        privKey: ""
-    }
-]
+const chainInfos = {
+  "SEPOLIA": {
+    chainId: 11155111,
+    rpc: "https://rpc.sepolia.dev",
+    targetAddr: config().FFF_ADDRESS,
+    privKey: config().PRIVATE_KEY,
+  },
+  "LOCALNET": {
+    chainId: 31337,
+    rpc: "http://127.0.0.1:8545",
+    targetAddr: config().FFF_ADDRESS,
+    privKey:
+      "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80",
+  },
+};
+
+const provider = new ethers.JsonRpcProvider(chainInfos[config().NETWORK].rpc);
+const signer = new ethers.Wallet(
+  chainInfos[config().NETWORK].privKey,
+  provider,
+);
+const contract = new ethers.Contract(
+  chainInfos[config().NETWORK].targetAddr,
+  ABI,
+  signer,
+);
 
 const wws = new WebSocket("wss://api.upbit.com/websocket/v1");
 wws.binaryType = "blob";
@@ -21,13 +41,20 @@ let latestVolume = 0n;
 let summedVolume = 0n;
 let summedPrice = 0n;
 
+// 들어온 데이터 정리
 function handleMessage(data: any) {
   if (data instanceof Blob) {
     const reader = new FileReader();
 
-    reader.onload = () => {
+    reader.onload = async () => {
       if (!reader.result) return;
 
+      // PONG 처리
+      if ((JSON.parse(reader.result as string) as any)?.status === "UP") {
+        return;
+      }
+
+      // Ticker 데이터 처리
       const Tick = JSON.parse(reader.result as string) as Ticker;
 
       // 지난 시간 확인
@@ -38,6 +65,8 @@ function handleMessage(data: any) {
         Frame;
 
       if (lastTimestamp > latestTimestamp) { // 한 번 싸이클이 돈 경우
+        if (summedPrice <= 0n || summedVolume <= 0n) return;
+
         if (isDryrun) {
           console.log("Frame Total Price / Frame Total Volume = Final Price");
           console.log("Final Price: ", summedPrice / summedVolume);
@@ -48,6 +77,10 @@ function handleMessage(data: any) {
             BigInt([summedPrice.toString(), "".padEnd(5, "0")].join("")) /
               summedVolume,
           );
+          console.log("Real Price: ", Tick.trade_price);
+          // console.log(await contract.getAddress());
+          const tx = await contract.commit(summedVolume, summedPrice);
+          await tx.wait();
           console.log("");
         }
 
@@ -107,9 +140,8 @@ wws.onopen = () => handleConnected(wws);
 
 wws.onmessage = (m) => handleMessage(m.data);
 
-console.log("Frame Size: ", Frame.toString(), "sec");
-
-// SAMPLE ㅋㅋ
-const privateKey = '6b911fd37cdf5c81d4c0adb1ab7fa822ed253ab0ad9aa18d77257c88b29b718e';
-const addr = Address.fromPrivateKey(privateKey);
-console.log('Verified', Address.verifyChecksum(addr), addr);
+function pingClient() {
+  wws.send("PING");
+}
+// Keep pinging the client every 30 seconds.
+const ping = setInterval(pingClient, 30000);
