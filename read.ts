@@ -5,8 +5,8 @@ import { config } from "https://deno.land/x/dotenv/mod.ts";
 const chainInfos = {
   "SEPOLIA": {
     chainId: 11155111,
-    rpc: "https://rpc.sepolia.dev",
-    targetAddr: config().FFF_ADDRESS,
+    rpc: "https://rpc.sepolia.org/",
+    targetAddr: "0x1Dc1421c0cee69247E2056c4Db7AC6b803A32CDb",
     privKey: config().PRIVATE_KEY,
   },
   "LOCALNET": {
@@ -25,10 +25,10 @@ const contract = new ethers.Contract(
   provider,
 );
 
-console.log(
-  " FR : ",
-  ethers.formatUnits(await contract.observeWithSeconds(0, 75), 5),
-);
+// console.log(
+//   " FR : ",
+//   ethers.formatUnits(await contract.observeWithSeconds(0, 75), 5),
+// );
 console.log(
   " 5분: ",
   ethers.formatUnits(await contract.observeWithSeconds(0, 300), 5),
@@ -36,4 +36,8 @@ console.log(
 console.log(
   "10분: ",
   ethers.formatUnits(await contract.observeWithSeconds(0, 600), 5),
+);
+console.log(
+  "20분: ",
+  ethers.formatUnits(await contract.observeWithSeconds(0, 1200), 5),
 );

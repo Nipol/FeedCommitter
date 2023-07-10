@@ -6,8 +6,8 @@ import { config } from "https://deno.land/x/dotenv/mod.ts";
 const chainInfos = {
   "SEPOLIA": {
     chainId: 11155111,
-    rpc: "https://rpc.sepolia.dev",
-    targetAddr: config().FFF_ADDRESS,
+    rpc: "https://rpc.sepolia.org/",
+    targetAddr: "0x1Dc1421c0cee69247E2056c4Db7AC6b803A32CDb",
     privKey: config().PRIVATE_KEY,
   },
   "LOCALNET": {
@@ -79,7 +79,9 @@ function handleMessage(data: any) {
           );
           console.log("Real Price: ", Tick.trade_price);
           // console.log(await contract.getAddress());
-          const tx = await contract.commit(summedVolume, summedPrice);
+          const tx = await contract.commit(summedVolume, summedPrice, {
+            gasLimit: 100000n,
+          });
           await tx.wait();
           console.log("");
         }
