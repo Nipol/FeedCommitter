@@ -63,10 +63,7 @@ function handleMessage(data: any) {
       // 거래정보 총합이면 삭제
       if(internalTick.stream_type == "SNAPSHOT") return;
 
-      const latestVolume = BigInt([
-        internalTick.trade_volume.toString().split(".")[0],
-        internalTick.trade_volume.toString().split(".")[1].padEnd(18, "0"),
-      ].join(""));
+      const latestVolume = BigInt(quantityStr(internalTick.trade_volume.toString()));
 
       // 현재 볼륨 * 값
       const ap = latestVolume * BigInt(internalTick.trade_price);
