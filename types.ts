@@ -40,3 +40,20 @@ export type ChainInfo = {
   privKey: string;
   targetAddr: string;
 };
+
+export type ResponseBody = {
+  "result": string;
+  "error_code": string;
+  "server_time": number;
+  "quote_currency": string;
+  "target_currency": string;
+  "transactions": Transaction[];
+};
+
+export type Transaction = {
+  "id": string;
+  "timestamp": number;
+  "price": string;
+  "qty": string;
+  "is_seller_maker": boolean;
+};

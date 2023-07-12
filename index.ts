@@ -1,9 +1,12 @@
-import { Ticker } from "./types.ts";
-import { ethers } from "npm:ethers@6.6.2";
+import { ChainInfo, ResponseBody, Ticker, Transaction } from "./types.ts";
+import { ethers } from "npm:ethers@^6.6.2";
 import ABI from "./ABI.json" assert { type: "json" };
 import { config } from "https://deno.land/x/dotenv/mod.ts";
+import { quantityStr } from "./utils.ts";
 
-const chainInfos = {
+const chainInfos: {
+  [key: string]: ChainInfo;
+} = {
   "SEPOLIA": {
     chainId: 11155111,
     rpc: "https://rpc.sepolia.org/",
@@ -30,23 +33,23 @@ const contract = new ethers.Contract(
   signer,
 );
 
+let Tick = {
+  latestId: "", // for coinone
+  totalVolume: 0n,
+  averagePrice: 0n,
+};
+
+///////////////////////////////////
+// 업비트 가격 가져오기
+///////////////////////////////////
 const wws = new WebSocket("wss://api.upbit.com/websocket/v1");
 wws.binaryType = "blob";
 
-const Frame = 75n;
-
-let isDryrun = false;
-let latestTimestamp = 0n;
-let latestVolume = 0n;
-let summedVolume = 0n;
-let summedPrice = 0n;
-
-// 들어온 데이터 정리
 function handleMessage(data: any) {
   if (data instanceof Blob) {
     const reader = new FileReader();
 
-    reader.onload = async () => {
+    reader.onload = () => {
       if (!reader.result) return;
 
       // PONG 처리
@@ -55,75 +58,23 @@ function handleMessage(data: any) {
       }
 
       // Ticker 데이터 처리
-      const Tick = JSON.parse(reader.result as string) as Ticker;
+      const internalTick = JSON.parse(reader.result as string) as Ticker;
 
-      // 지난 시간 확인
-      const lastTimestamp = latestTimestamp % Frame;
+      // 거래정보 총합이면 삭제
+      if(internalTick.stream_type == "SNAPSHOT") return;
 
-      // 마지막 접근 시간 저장
-      latestTimestamp = BigInt(Tick.timestamp.toString().substring(0, 10)) %
-        Frame;
+      const latestVolume = BigInt([
+        internalTick.trade_volume.toString().split(".")[0],
+        internalTick.trade_volume.toString().split(".")[1].padEnd(18, "0"),
+      ].join(""));
 
-      if (lastTimestamp > latestTimestamp) { // 한 번 싸이클이 돈 경우
-        if (summedPrice <= 0n || summedVolume <= 0n) return;
+      // 현재 볼륨 * 값
+      const ap = latestVolume * BigInt(internalTick.trade_price);
 
-        if (isDryrun) {
-          console.log("Frame Total Price / Frame Total Volume = Final Price");
-          console.log("Final Price: ", summedPrice / summedVolume);
-          console.log("Frame Total Price: ", summedPrice);
-          console.log("Frame Total Volume: ", summedVolume);
-          console.log(
-            "KRW:ETH",
-            BigInt([summedPrice.toString(), "".padEnd(5, "0")].join("")) /
-              summedVolume,
-          );
-          console.log("Real Price: ", Tick.trade_price);
-          // console.log(await contract.getAddress());
-          const tx = await contract.commit(summedVolume, summedPrice, {
-            gasLimit: 100000n,
-          });
-          await tx.wait();
-          console.log("");
-        }
-
-        // 마지막 볼륨 값 불러옴
-        const lastVolume = latestVolume;
-
-        // 마지막 볼륨 값 업데이트
-        latestVolume = BigInt([
-          Tick.acc_trade_volume.toString().split(".")[0],
-          Tick.acc_trade_volume.toString().split(".")[1].padEnd(18, "0"),
-        ].join(""));
-
-        // 볼륨의 차이로 실제 볼륨 가져옴.
-        const currentVolume = latestVolume - lastVolume;
-
-        // 현재 볼륨 * 값
-        summedPrice = currentVolume * BigInt(Tick.trade_price);
-
-        // 볼륨 누적
-        summedVolume = currentVolume;
-
-        isDryrun = true;
-      } else if (lastTimestamp <= latestTimestamp) { // 싸이클이 돌지 않은 경우
-        // 마지막 볼륨 값 불러옴
-        const lastVolume = latestVolume;
-
-        // 마지막 볼륨 값 업데이트
-        latestVolume = BigInt([
-          Tick.acc_trade_volume.toString().split(".")[0],
-          Tick.acc_trade_volume.toString().split(".")[1].padEnd(18, "0"),
-        ].join(""));
-
-        // 볼륨의 차이로 실제 볼륨 가져옴.
-        const currentVolume = latestVolume - lastVolume;
-
-        // 현재 볼륨 * 값
-        summedPrice += currentVolume * BigInt(Tick.trade_price);
-
-        // 볼륨 누적
-        summedVolume += currentVolume;
-      }
+      Object.assign(Tick, {
+        averagePrice: Tick.averagePrice + ap,
+        totalVolume: Tick.totalVolume + latestVolume,
+      });
     };
 
     reader.readAsText(data);
@@ -134,16 +85,103 @@ function handleMessage(data: any) {
 
 function handleConnected(wws: WebSocket) {
   wws.send(
-    '[{"ticket":"bean-the-dao-feed-committer"},{"type":"ticker","codes":["KRW-ETH"]}]',
+    '[{"ticket":"bean-feed-committer"},{"type":"ticker","codes":["KRW-ETH"]}]',
   );
 }
-
-wws.onopen = () => handleConnected(wws);
-
-wws.onmessage = (m) => handleMessage(m.data);
 
 function pingClient() {
   wws.send("PING");
 }
-// Keep pinging the client every 30 seconds.
-const ping = setInterval(pingClient, 30000);
+
+wws.onopen = () => handleConnected(wws);
+wws.onmessage = (m) => handleMessage(m.data);
+
+///////////////////////////////////
+// 코인원 가격 가져오기
+///////////////////////////////////
+async function GetFetch() {
+  const resp = await fetch(
+    "https://api.coinone.co.kr/public/v2/trades/KRW/ETH?size=50",
+    {
+      method: "GET",
+      headers: {
+        "Content-Type": "application/json",
+      },
+    },
+  );
+
+  const trx = (await resp.json()) as ResponseBody;
+
+  // 초기까지는 문제 없음
+  if (Tick.latestId === "") {
+    Object.assign(Tick, {
+      latestId: trx.transactions[0].id,
+    });
+    return;
+  }
+
+  // 저장된 아이디랑 다르면, 현재 아이디로 부터
+  if (Tick.latestId !== trx.transactions[0].id) {
+    const index = trx.transactions.findIndex((element: Transaction) =>
+      Tick.latestId === element.id
+    );
+
+    const newTrx: Transaction[] = trx.transactions.slice(0, index);
+
+    let ap: bigint = 0n;
+    let tv: bigint = 0n;
+
+    newTrx.forEach((element: Transaction) => {
+      const quantity = BigInt(quantityStr(element.qty));
+      const price = BigInt(element.price);
+      ap += quantity * price;
+      tv += quantity;
+    });
+
+    Object.assign(Tick, {
+      latestId: trx.transactions[0].id,
+      averagePrice: Tick.averagePrice + ap,
+      totalVolume: Tick.totalVolume + tv,
+    });
+    return;
+  }
+}
+
+async function GetPrice() {
+  if (Tick.averagePrice === 0n || Tick.totalVolume === 0n) {
+    console.log("Zero0: ", Tick.latestId);
+    console.log("Zero1: ", Tick.averagePrice);
+    console.log("Zero2: ", Tick.totalVolume);
+    return;
+  }
+
+  console.log("Frame Total Price / Frame Total Volume = Final Price");
+  console.log("Final Price: ", Tick.averagePrice / Tick.totalVolume);
+  console.log("Frame Total Price: ", Tick.averagePrice);
+  console.log("Frame Total Volume: ", Tick.totalVolume);
+  console.log(
+    "KRW:ETH",
+    BigInt([Tick.averagePrice.toString(), "".padEnd(5, "0")].join("")) /
+      Tick.totalVolume,
+  );
+  console.log("");
+
+  // const tx = await contract.commit(Tick.totalVolume, Tick.averagePrice, {
+  //   gasLimit: 100000n,
+  // });
+  // await tx.wait();
+
+  Object.assign(Tick, {
+    averagePrice: 0n,
+    totalVolume: 0n,
+  });
+}
+
+// 업비트 연결 유지용
+setInterval(pingClient, 30000);
+
+// 코인원 10초마다 데이터 가져오기
+setInterval(GetFetch, 3000);
+
+// 가격 표출
+setInterval(GetPrice, 75000);

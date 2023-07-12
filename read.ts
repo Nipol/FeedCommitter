@@ -1,8 +1,11 @@
+import { ChainInfo } from "./types.ts";
 import { ethers } from "npm:ethers@6.6.2";
 import ABI from "./ABI.json" assert { type: "json" };
 import { config } from "https://deno.land/x/dotenv/mod.ts";
 
-const chainInfos = {
+const chainInfos: {
+  [key: string]: ChainInfo;
+} = {
   "SEPOLIA": {
     chainId: 11155111,
     rpc: "https://rpc.sepolia.org/",
@@ -25,10 +28,6 @@ const contract = new ethers.Contract(
   provider,
 );
 
-// console.log(
-//   " FR : ",
-//   ethers.formatUnits(await contract.observeWithSeconds(0, 75), 5),
-// );
 console.log(
   " 5분: ",
   ethers.formatUnits(await contract.observeWithSeconds(0, 300), 5),
