@@ -166,10 +166,10 @@ async function GetPrice() {
   );
   console.log("");
 
-  // const tx = await contract.commit(Tick.totalVolume, Tick.averagePrice, {
-  //   gasLimit: 100000n,
-  // });
-  // await tx.wait();
+  const tx = await contract.commit(Tick.totalVolume, Tick.averagePrice, {
+    gasLimit: 100000n,
+  });
+  await tx.wait();
 
   Object.assign(Tick, {
     averagePrice: 0n,
