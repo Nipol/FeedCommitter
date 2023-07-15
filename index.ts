@@ -1,5 +1,6 @@
 import { ChainInfo, ResponseBody, Ticker, Transaction } from "./types.ts";
 import { ethers } from "npm:ethers@^6.6.2";
+import { encodeSqrtRatioX96, TickMath } from "npm:@uniswap/v3-sdk@^3.10.0";
 import ABI from "./ABI.json" assert { type: "json" };
 import { config } from "https://deno.land/x/dotenv/mod.ts";
 import { quantityStr } from "./utils.ts";
@@ -23,10 +24,12 @@ const chainInfos: {
 };
 
 const provider = new ethers.JsonRpcProvider(chainInfos[config().NETWORK].rpc);
+
 const signer = new ethers.Wallet(
   chainInfos[config().NETWORK].privKey,
   provider,
 );
+
 const contract = new ethers.Contract(
   chainInfos[config().NETWORK].targetAddr,
   ABI,
@@ -35,8 +38,10 @@ const contract = new ethers.Contract(
 
 let Tick = {
   latestId: "", // for coinone
+  latestTime: "", // for gdac
   totalVolume: 0n,
   averagePrice: 0n,
+  count: 0n,
 };
 
 ///////////////////////////////////
@@ -61,9 +66,11 @@ function handleMessage(data: any) {
       const internalTick = JSON.parse(reader.result as string) as Ticker;
 
       // 거래정보 총합이면 삭제
-      if(internalTick.stream_type == "SNAPSHOT") return;
+      if (internalTick.stream_type == "SNAPSHOT") return;
 
-      const latestVolume = BigInt(quantityStr(internalTick.trade_volume.toString()));
+      const latestVolume = BigInt(
+        quantityStr(internalTick.trade_volume.toString()),
+      );
 
       // 현재 볼륨 * 값
       const ap = latestVolume * BigInt(internalTick.trade_price);
@@ -82,7 +89,7 @@ function handleMessage(data: any) {
 
 function handleConnected(wws: WebSocket) {
   wws.send(
-    '[{"ticket":"bean-feed-committer"},{"type":"ticker","codes":["KRW-ETH"]}]',
+    '[{"ticket":"bean-feed-committer-test"},{"type":"ticker","codes":["KRW-ETH"]}]',
   );
 }
 
@@ -145,40 +152,79 @@ async function GetFetch() {
 }
 
 async function GetPrice() {
+  // 둘 중 하나라도 0이라면 다시 볼륨 탐색해야함
   if (Tick.averagePrice === 0n || Tick.totalVolume === 0n) {
-    console.log("Zero0: ", Tick.latestId);
-    console.log("Zero1: ", Tick.averagePrice);
-    console.log("Zero2: ", Tick.totalVolume);
+    console.log("거래 없음\n");
     return;
   }
 
-  console.log("Frame Total Price / Frame Total Volume = Final Price");
-  console.log("Final Price: ", Tick.averagePrice / Tick.totalVolume);
-  console.log("Frame Total Price: ", Tick.averagePrice);
-  console.log("Frame Total Volume: ", Tick.totalVolume);
-  console.log(
-    "KRW:ETH",
-    BigInt([Tick.averagePrice.toString(), "".padEnd(5, "0")].join("")) /
-      Tick.totalVolume,
+  // 이번 프레임에서 총 볼륨이 1 이더 이하라면, 무시하고 누적시킴
+  if (Tick.totalVolume <= 1000000000000000000n) {
+    console.log("볼륨 적음\n");
+    return;
+  }
+
+  const averageTick = BigInt(
+    await contract.observeWithSeconds(300),
   );
+
+  const current =
+    BigInt([Tick.averagePrice.toString(), "".padEnd(5, "0")].join("")) /
+    Tick.totalVolume;
+
+  const currentTick = TickMath.getTickAtSqrtRatio(
+    encodeSqrtRatioX96(current.toString(), "1000000000000000000"),
+  );
+
+  const base = averageTick > currentTick ? averageTick : currentTick;
+  const target = averageTick > currentTick ? currentTick : averageTick;
+  const diff = base - target;
+
+  console.log("Frame Total Price / Frame Total Volume = Final Price");
+  console.log("Frame Total Price: ", Tick.averagePrice);
+  console.log(
+    "Frame Total Volume: ",
+    ethers.formatUnits(Tick.totalVolume.toString(), 18),
+  );
+  console.log(
+    "Frame Average Price: ",
+    ethers.formatUnits(current.toString(), 5),
+  );
+  console.log("Tick: ", currentTick);
   console.log("");
 
-  const tx = await contract.commit(Tick.totalVolume, Tick.averagePrice, {
-    gasLimit: 100000n,
-  });
-  await tx.wait();
+  // 편차 0.1% 이상이거나, 3번째 도는 경우,
+  if (diff >= 10n || Tick.count % 4n == 0n) {
+    const tx = await contract.commit(Tick.totalVolume, Tick.averagePrice, {
+      gasLimit: 100000n,
+    });
+    await tx.wait();
 
+    // 커밋 안되는 동안에 볼륨 누적하도록...
+    // Object.assign(Tick, {
+    //   averagePrice: 0n,
+    //   totalVolume: 0n,
+    // });
+  }
+
+  // TODO: 아꼈으면 초기화 하지 않기
+  // -> 적어도 5번 돌 때 한 번은 커밋해야하는둥... 기믹 생각할 것
+  // 좀 더 짧은 주기를 가져도 될 것 같음.
+  // 이렇게 되면 자꾸 주기가 줄어야 하는 것 같네...
+
+  // 체인링크의 경우, 하트비트(하루 또는 한 시간)가 충족되거나 10분동안 편차가 이동하면 커밋함.
   Object.assign(Tick, {
     averagePrice: 0n,
     totalVolume: 0n,
+    count: Tick.count + 1n, // 이거 편차가 업데이트 되면 1로 바꾸는 것도 방법이지 않을까.
   });
 }
 
 // 업비트 연결 유지용
 setInterval(pingClient, 30000);
 
-// 코인원 10초마다 데이터 가져오기
+// 코인원 3초마다 데이터 가져오기
 setInterval(GetFetch, 3000);
 
 // 가격 표출
-setInterval(GetPrice, 75000);
+setInterval(GetPrice, 96000);
