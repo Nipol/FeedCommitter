@@ -1,20 +1,93 @@
 [
   {
+    "inputs": [],
+    "stateMutability": "nonpayable",
+    "type": "constructor"
+  },
+  {
+    "anonymous": false,
     "inputs": [
       {
-        "internalType": "uint96",
-        "name": "totalVolume",
-        "type": "uint96"
+        "indexed": false,
+        "internalType": "uint32",
+        "name": "timestamp",
+        "type": "uint32"
       },
       {
-        "internalType": "uint96",
-        "name": "averagePrice",
-        "type": "uint96"
+        "indexed": false,
+        "internalType": "int24",
+        "name": "averageTick",
+        "type": "int24"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint128",
+        "name": "volume",
+        "type": "uint128"
+      }
+    ],
+    "name": "Committed",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": false,
+        "internalType": "uint16",
+        "name": "frameCardinalityNextOld",
+        "type": "uint16"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint16",
+        "name": "frameCardinalityNextNew",
+        "type": "uint16"
+      }
+    ],
+    "name": "IncreaseFrameCardinalityNext",
+    "type": "event"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "int24",
+        "name": "averageTick",
+        "type": "int24"
+      },
+      {
+        "internalType": "uint128",
+        "name": "volume",
+        "type": "uint128"
       }
     ],
     "name": "commit",
     "outputs": [],
     "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint32",
+        "name": "secondsAgo",
+        "type": "uint32"
+      }
+    ],
+    "name": "consultWithSeconds",
+    "outputs": [
+      {
+        "internalType": "int24",
+        "name": "arithmeticMeanTick",
+        "type": "int24"
+      },
+      {
+        "internalType": "uint128",
+        "name": "harmonicMeanLiquidity",
+        "type": "uint128"
+      }
+    ],
+    "stateMutability": "view",
     "type": "function"
   },
   {
@@ -31,6 +104,48 @@
     "type": "function"
   },
   {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "name": "frames",
+    "outputs": [
+      {
+        "internalType": "uint32",
+        "name": "blockTimestamp",
+        "type": "uint32"
+      },
+      {
+        "internalType": "int56",
+        "name": "averageTickCumulative",
+        "type": "int56"
+      },
+      {
+        "internalType": "uint160",
+        "name": "secondsPerVolumeCumulativeX128",
+        "type": "uint160"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint16",
+        "name": "frameCardinalityNext",
+        "type": "uint16"
+      }
+    ],
+    "name": "increaseFrameCardinalityNext",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
     "inputs": [],
     "name": "name",
     "outputs": [
@@ -44,68 +159,15 @@
     "type": "function"
   },
   {
-    "inputs": [
-      {
-        "internalType": "uint256",
-        "name": "",
-        "type": "uint256"
-      }
-    ],
-    "name": "observations",
+    "inputs": [],
+    "name": "owner",
     "outputs": [
       {
-        "internalType": "uint64",
-        "name": "blockTimestamp",
-        "type": "uint64"
-      },
-      {
-        "internalType": "uint96",
-        "name": "totalVolume",
-        "type": "uint96"
-      },
-      {
-        "internalType": "uint96",
-        "name": "averagePrice",
-        "type": "uint96"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "uint64",
-        "name": "start",
-        "type": "uint64"
-      },
-      {
-        "internalType": "uint64",
-        "name": "secondAgo",
-        "type": "uint64"
-      }
-    ],
-    "name": "observeWithSeconds",
-    "outputs": [
-      {
-        "internalType": "uint256",
+        "internalType": "address",
         "name": "",
-        "type": "uint256"
+        "type": "address"
       }
     ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "uint96",
-        "name": "volume",
-        "type": "uint96"
-      }
-    ],
-    "name": "observeWithVolume",
-    "outputs": [],
     "stateMutability": "view",
     "type": "function"
   },
@@ -115,23 +177,23 @@
     "outputs": [
       {
         "internalType": "uint16",
-        "name": "observationIndex",
+        "name": "frameIndex",
         "type": "uint16"
       },
       {
         "internalType": "uint16",
-        "name": "observationCardinality",
+        "name": "frameCardinality",
         "type": "uint16"
       },
       {
         "internalType": "uint16",
-        "name": "observationCardinalityNext",
+        "name": "frameCardinalityNext",
         "type": "uint16"
       },
       {
-        "internalType": "uint64",
+        "internalType": "uint32",
         "name": "latestTimestamp",
-        "type": "uint64"
+        "type": "uint32"
       }
     ],
     "stateMutability": "view",

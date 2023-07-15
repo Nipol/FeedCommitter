@@ -30,13 +30,13 @@ const contract = new ethers.Contract(
 
 console.log(
   " 5분: ",
-  ethers.formatUnits(await contract.observeWithSeconds(0, 300), 5),
+  await contract.observeWithSeconds(300),
 );
 console.log(
   "10분: ",
-  ethers.formatUnits(await contract.observeWithSeconds(0, 600), 5),
+  await contract.observeWithSeconds(600),
 );
 console.log(
   "20분: ",
-  ethers.formatUnits(await contract.observeWithSeconds(0, 1200), 5),
+  await contract.observeWithSeconds(1200),
 );
