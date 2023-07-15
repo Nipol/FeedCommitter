@@ -164,21 +164,19 @@ async function GetPrice() {
     return;
   }
 
-  const averageTick = BigInt(
-    await contract.observeWithSeconds(300),
-  );
+  const averageTick = BigInt((await contract.consultWithSeconds(96))[0]);
 
   const current =
     BigInt([Tick.averagePrice.toString(), "".padEnd(5, "0")].join("")) /
     Tick.totalVolume;
 
-  const currentTick = TickMath.getTickAtSqrtRatio(
+  const currentTick = BigInt(TickMath.getTickAtSqrtRatio(
     encodeSqrtRatioX96(current.toString(), "1000000000000000000"),
-  );
+  ));
 
-  const base = averageTick > currentTick ? averageTick : currentTick;
-  const target = averageTick > currentTick ? currentTick : averageTick;
-  const diff = base - target;
+  const base: bigint = averageTick > currentTick ? averageTick : currentTick;
+  const target: bigint = averageTick > currentTick ? currentTick : averageTick;
+  const diff: bigint = base - target;
 
   console.log("Frame Total Price / Frame Total Volume = Final Price");
   console.log("Frame Total Price: ", Tick.averagePrice);
@@ -190,27 +188,18 @@ async function GetPrice() {
     "Frame Average Price: ",
     ethers.formatUnits(current.toString(), 5),
   );
-  console.log("Tick: ", currentTick);
+  console.log("aTick: ", averageTick);
+  console.log(" Tick: ", currentTick);
+  console.log("Diff: ", diff);
   console.log("");
 
   // 편차 0.1% 이상이거나, 3번째 도는 경우,
   if (diff >= 10n || Tick.count % 4n == 0n) {
-    const tx = await contract.commit(Tick.totalVolume, Tick.averagePrice, {
+    const tx = await contract.commit(currentTick, Tick.totalVolume, {
       gasLimit: 100000n,
     });
     await tx.wait();
-
-    // 커밋 안되는 동안에 볼륨 누적하도록...
-    // Object.assign(Tick, {
-    //   averagePrice: 0n,
-    //   totalVolume: 0n,
-    // });
   }
-
-  // TODO: 아꼈으면 초기화 하지 않기
-  // -> 적어도 5번 돌 때 한 번은 커밋해야하는둥... 기믹 생각할 것
-  // 좀 더 짧은 주기를 가져도 될 것 같음.
-  // 이렇게 되면 자꾸 주기가 줄어야 하는 것 같네...
 
   // 체인링크의 경우, 하트비트(하루 또는 한 시간)가 충족되거나 10분동안 편차가 이동하면 커밋함.
   Object.assign(Tick, {
