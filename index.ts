@@ -11,7 +11,7 @@ const chainInfos: {
   "SEPOLIA": {
     chainId: 11155111,
     rpc: "https://rpc.sepolia.org/",
-    targetAddr: "0x1Dc1421c0cee69247E2056c4Db7AC6b803A32CDb",
+    targetAddr: config().FFF_ADDRESS,
     privKey: config().PRIVATE_KEY,
   },
   "LOCALNET": {
@@ -41,7 +41,9 @@ let Tick = {
   latestTime: "", // for gdac
   totalVolume: 0n,
   averagePrice: 0n,
-  count: 0n,
+  totalVolumeCumulative: 0n,
+  averagePriceCumulative: 0n,
+  count: 1n,
 };
 
 ///////////////////////////////////
@@ -151,9 +153,31 @@ async function GetFetch() {
   }
 }
 
+async function GetAveragePrice(
+  maxTrie: number,
+  currentTrie: number,
+  retrie: number,
+): Promise<bigint> {
+  const Range = 300;
+  const secondsAgo = (Range * maxTrie) - (retrie * Range);
+  const start = Range * currentTrie;
+
+  try {
+    return BigInt((await contract.consultWithSeconds(secondsAgo))[0]);
+  } catch {
+    if (retrie > 0) {
+      return GetAveragePrice(maxTrie, currentTrie + 1, retrie - 1);
+    } else {
+      return 0n;
+    }
+  }
+}
+
 async function GetPrice() {
   // 둘 중 하나라도 0이라면 다시 볼륨 탐색해야함
-  if (Tick.averagePrice === 0n || Tick.totalVolume === 0n) {
+  if (
+    Tick.averagePrice === 0n || Tick.totalVolume === 0n
+  ) {
     console.log("거래 없음\n");
     return;
   }
@@ -164,7 +188,8 @@ async function GetPrice() {
     return;
   }
 
-  const averageTick = BigInt((await contract.consultWithSeconds(96))[0]);
+  // 최대 15분 탐색
+  const averageTick = await GetAveragePrice(3, 0, 2);
 
   const current =
     BigInt([Tick.averagePrice.toString(), "".padEnd(5, "0")].join("")) /
@@ -174,38 +199,170 @@ async function GetPrice() {
     encodeSqrtRatioX96(current.toString(), "1000000000000000000"),
   ));
 
+  console.log("평균 값", averageTick);
+
   const base: bigint = averageTick > currentTick ? averageTick : currentTick;
   const target: bigint = averageTick > currentTick ? currentTick : averageTick;
   const diff: bigint = base - target;
 
-  console.log("Frame Total Price / Frame Total Volume = Final Price");
-  console.log("Frame Total Price: ", Tick.averagePrice);
-  console.log(
-    "Frame Total Volume: ",
-    ethers.formatUnits(Tick.totalVolume.toString(), 18),
-  );
-  console.log(
-    "Frame Average Price: ",
-    ethers.formatUnits(current.toString(), 5),
-  );
-  console.log("aTick: ", averageTick);
-  console.log(" Tick: ", currentTick);
-  console.log("Diff: ", diff);
-  console.log("");
+  // 평균 값을 가져 올 수 있었고, 편차 0.1% 이상인 경우
+  if (averageTick !== 0n && diff >= 10n) {
+    console.log("Frame Total Price: ", Tick.averagePrice);
+    console.log(
+      "Frame Total Volume: ",
+      ethers.formatUnits(Tick.totalVolume.toString(), 18),
+    );
+    console.log(
+      "Frame Average Price: ",
+      ethers.formatUnits(current.toString(), 5),
+    );
+    console.log(
+      "Frame Average Tick: ",
+      currentTick.toString(),
+    );
+    console.log("aTick: ", averageTick);
+    console.log(" Tick: ", currentTick);
+    console.log("Diff: ", diff);
+    console.log("");
 
-  // 편차 0.1% 이상이거나, 3번째 도는 경우,
-  if (diff >= 10n || Tick.count % 4n == 0n) {
     const tx = await contract.commit(currentTick, Tick.totalVolume, {
       gasLimit: 100000n,
     });
     await tx.wait();
+
+    // 누적 할 것 없이 모든 값 초기화 하고 카운트 늘림.
+    Object.assign(Tick, {
+      averagePrice: 0n,
+      totalVolume: 0n,
+      averagePriceCumulative: 0n,
+      totalVolumeCumulative: 0n,
+      count: Tick.count + 1n,
+    });
+
+    return;
   }
 
-  // 체인링크의 경우, 하트비트(하루 또는 한 시간)가 충족되거나 10분동안 편차가 이동하면 커밋함.
+  // 평균 값 얻지 못한 경우, 그냥 커밋
+  if (averageTick === 0n) {
+    console.log("Frame Total Price: ", Tick.averagePrice);
+    console.log(
+      "Frame Total Volume: ",
+      ethers.formatUnits(Tick.totalVolume.toString(), 18),
+    );
+    console.log(
+      "Frame Average Price: ",
+      ethers.formatUnits(current.toString(), 5),
+    );
+    console.log(
+      "Frame Average Tick: ",
+      currentTick.toString(),
+    );
+    console.log("");
+
+    const tx = await contract.commit(currentTick, Tick.totalVolume, {
+      gasLimit: 100000n,
+    });
+    await tx.wait();
+
+    Object.assign(Tick, {
+      averagePrice: 0n,
+      totalVolume: 0n,
+      averagePriceCumulative: 0n,
+      totalVolumeCumulative: 0n,
+      count: Tick.count + 1n,
+    });
+
+    return;
+  }
+
+  // 평균 값이고 뭐고, 4번 싸이클이 돌면 커밋해야함
+  if (Tick.count % 4n == 0n) {
+    if (
+      Tick.totalVolumeCumulative !== 0n || Tick.averagePriceCumulative !== 0n
+    ) {
+      const current = BigInt(
+        [Tick.averagePriceCumulative.toString(), "".padEnd(5, "0")].join(""),
+      ) /
+        Tick.totalVolumeCumulative;
+
+      const cumulativeTick = BigInt(TickMath.getTickAtSqrtRatio(
+        encodeSqrtRatioX96(current.toString(), "1000000000000000000"),
+      ));
+
+      console.log("Cumulative Total Price: ", Tick.averagePriceCumulative);
+      console.log(
+        "Cumulative Total Volume: ",
+        ethers.formatUnits(Tick.totalVolumeCumulative.toString(), 18),
+      );
+      console.log(
+        "Cumulative Average Price: ",
+        ethers.formatUnits(current.toString(), 5),
+      );
+      console.log(
+        "Cumulative Average Tick: ",
+        cumulativeTick.toString(),
+      );
+      console.log("");
+
+      const tx = await contract.commit(
+        cumulativeTick,
+        Tick.totalVolumeCumulative,
+        {
+          gasLimit: 100000n,
+        },
+      );
+      await tx.wait();
+    } else {
+      const current = BigInt(
+        [Tick.averagePrice.toString(), "".padEnd(5, "0")].join(""),
+      ) /
+        Tick.totalVolume;
+
+      const currentTick = BigInt(TickMath.getTickAtSqrtRatio(
+        encodeSqrtRatioX96(current.toString(), "1000000000000000000"),
+      ));
+
+      console.log("Cumulative Total Price: ", Tick.averagePrice);
+      console.log(
+        "Cumulative Total Volume: ",
+        ethers.formatUnits(Tick.totalVolume.toString(), 18),
+      );
+      console.log(
+        "Cumulative Average Price: ",
+        ethers.formatUnits(current.toString(), 5),
+      );
+      console.log(
+        "Cumulative Average Tick: ",
+        currentTick.toString(),
+      );
+      console.log("");
+
+      const tx = await contract.commit(
+        currentTick,
+        Tick.totalVolume,
+        {
+          gasLimit: 100000n,
+        },
+      );
+      await tx.wait();
+    }
+
+    Object.assign(Tick, {
+      averagePrice: 0n,
+      totalVolume: 0n,
+      averagePriceCumulative: 0n,
+      totalVolumeCumulative: 0n,
+      count: Tick.count + 1n,
+    });
+    return;
+  }
+
   Object.assign(Tick, {
     averagePrice: 0n,
     totalVolume: 0n,
-    count: Tick.count + 1n, // 이거 편차가 업데이트 되면 1로 바꾸는 것도 방법이지 않을까.
+    averagePriceCumulative: Tick.averagePriceCumulative + Tick.averagePrice,
+    totalVolumeCumulative: Tick.totalVolumeCumulative + Tick.totalVolume,
+    count: Tick.count + 1n,
   });
 }
 
