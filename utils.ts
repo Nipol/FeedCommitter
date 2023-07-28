@@ -2,11 +2,20 @@ export const quantityStr = (element: string): string => {
   if (element.includes(".")) {
     return element.split(".").map((v, i) => {
       if (i == 1) {
+        if (v.includes("e-")) {
+          v = v.replace(/e-[0-9]/i, "");
+        }
         return v.padEnd(18, "0");
       }
       return v;
     }).join("");
   } else {
+    if (element.includes("e-")) {
+      return element.split("e-").map((v, i) => {
+        if (i == 1) return "".padEnd(Number(v), "0").padEnd(18, "0");
+        else return v;
+      }).join("");
+    }
     return `${element}000000000000000000`;
   }
 };
